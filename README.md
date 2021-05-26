@@ -1,9 +1,16 @@
 # VK Spotify Integration
-Allows you to control your Spotify playback from your VK, and set status for VK.
-Todo:
-- Add photos in VK from track.
-- Fix capcha.
+## Python script that allows you to control your Spotify from your VK, set status for VK and much more in future updates.
+
+### Todo:
+- Add track/album cover in VK!
+- Fix !search bad result and playing playlist, not 1 track (for !next and !previous)!
+- Fix !pause and !unpause!
+- Organize code!
+- Fix capcha for VK!
+- Fix exceptions and other things!
 - Many more fixes!
 
 # Requirements:
 - pip install -r requirements.txt
+
+![Preview](preview.png)
