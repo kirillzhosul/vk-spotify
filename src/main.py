@@ -95,13 +95,13 @@ def process_command(_api_vkontakte, _api_spotify, _text):
                     _response = "Не удалось найти треки из вашего запроса!"
                 else:
                     # Getting ids list.
-                    founded_tracks_id = [_track.id for _track in founded_tracks]
+                    #founded_tracks_id = [_track.id for _track in founded_tracks]
 
                     # Playing.
-                    _api_spotify.playback_start_tracks(founded_tracks_id)
+                    _api_spotify.playback_start_tracks([founded_tracks[0].id])
 
                     # Response.
-                    _response = f"Песня переключена на {track_format(founded_tracks[0])}"
+                    _response = f"Песня переключена на {track_format(founded_tracks[0])}. {founded_tracks[0].album.images[0].url}"
         except Exception as e:
             # Error.
             _response = f"Произошла ошибка: {e}"
@@ -153,7 +153,7 @@ def process_command(_api_vkontakte, _api_spotify, _text):
 
 def track_format(_track):
     # Function that formats track.
-
+    
     # Returning.
     return f"{_track.name} от {get_artists_list([_artist.name for _artist in _track.artists])}"
 
@@ -263,10 +263,6 @@ SPOTIFY_CLIENT_ID = ""
 SPOTIFY_CLIENT_SECRET = ""
 SPOTIFY_REDIRECT_URI = ""
 VKONTAKTE_TOKEN = ""
-SPOTIFY_CLIENT_ID = "2fb5269590f5467ab7235fe43c834b4d"
-SPOTIFY_CLIENT_SECRET = "4226865d2a6a4ce6940ff492e4be6041"
-SPOTIFY_REDIRECT_URI = "https://nomistic-curve.000webhostapp.com"
-VKONTAKTE_TOKEN = "3100a7f90f18a25b3a53af0893da63700f01bceb6fb416c7d299903707474a26416bcc289c8afad18d3be"
 
 # Starting.
 start()
