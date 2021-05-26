@@ -43,7 +43,7 @@ def process_command(_api_vkontakte, _api_spotify, _text):
         # !song command that returns current track.
 
         # Returning status.
-        _response = get_status(_api_spotify)
+        _response = get_track(_api_spotify)
     if _text.startswith("!next"):
         # !next command that plays next track in the playlist.
 
@@ -51,7 +51,7 @@ def process_command(_api_vkontakte, _api_spotify, _text):
         _api_spotify.playback_next()
 
         # Returning status.
-        _response = f"[Spotify] Песня переключена на {get_status(_api_spotify)}"
+        _response = f"Песня переключена на {get_track(_api_spotify)}!"
     if _text.startswith("!previous"):
         # !previous command that plays previous track in the playlist.
 
@@ -59,7 +59,7 @@ def process_command(_api_vkontakte, _api_spotify, _text):
         _api_spotify.playback_previous()
 
         # Returning status.
-        _response = f"[Spotify] Песня переключена на {get_status(_api_spotify)}"
+        _response = f"Песня переключена на {get_track(_api_spotify)}!" 
     if _text.startswith("!pause"):
         # !pause command that pause playing.
 
@@ -67,7 +67,7 @@ def process_command(_api_vkontakte, _api_spotify, _text):
         _api_spotify.playback_pause()
 
         # Response
-        _response = f"[Spotify] Песня остановлена!"
+        _response = f"Песня остановлена!"
     if _text.startswith("!unpause"):
         # !unpause command that unpause playing.
 
@@ -75,52 +75,87 @@ def process_command(_api_vkontakte, _api_spotify, _text):
         _api_spotify.playback_resume()
 
         # Response
-        _response = f"[Spotify] Песня продолжена!"
-
+        _response = f"Песня продолжена!"
     if _text.startswith("!search"):
         # !search command that searches and playing.
         try:
-            # Searching.
-            founded_track, = _api_spotify.search(_text.split(" ")[1])
+            # Getting command arguments.
+            _arguments = _text.split(" ")[1:]
 
-            # Getting just one track.
-            founded_track = founded_track.items[0]
+            if len(_arguments) < 1:
+                # Invalid arguments (not passed any.)
+                _response = "Пример команды !search ЗАПРОС_ПОИСКА"
+            else:
+                # Searching tracks indeces.
+                founded_tracks, = _api_spotify.search(" ".join(_arguments))
+                founded_tracks = founded_tracks.items
 
-            # Playing.
-            _api_spotify.playback_start_tracks([founded_track.id])
+                if len(founded_tracks) < 1:
+                    # If no search result
+                    _response = "Не удалось найти треки из вашего запроса!"
+                else:
+                    # Getting ids list.
+                    founded_tracks_id = [_track.id for _track in founded_tracks]
 
-            # Response.
-            _response = f"[Spotify] Песня переключена на {founded_track.name} от {get_artists_list([_artist.name for _artist in founded_track.artists])}"
+                    # Playing.
+                    _api_spotify.playback_start_tracks(founded_tracks_id)
+
+                    # Response.
+                    _response = f"Песня переключена на {track_format(founded_tracks[0])}"
         except Exception as e:
             # Error.
-            _response = f"[Spotify] Произошла ошибка: {e}"
+            _response = f"Произошла ошибка: {e}"
     if _text.startswith("!volume"):
         # !volume command that sets the volume.
         try:
+            # Getting command arguments.
+            _arguments = _text.split(" ")[1:]
+
+            # Global volume?
             global VOLUME
-            if len(_text.split(" ")) > 1:
-                _volume = _text.split(" ")[1]
-                _volume = int(_volume)
-                _api_spotify.playback_volume(_volume)
-                VOLUME = _volume
-                _response = f"[Spotify] Громкость изменена на {VOLUME}%"
+
+            if len(_arguments) > 0:
+                # If any arguments.
+
+                # Getting volume.
+                _volume = int(_arguments[0])
+
+                if _volume < 0 or _volume > 100:
+                    # Overflow error.
+                    _response = "Громкость должна быть от 0 до 100%!"
+                else:
+                    # Setting volume
+                    _api_spotify.playback_volume(_volume)
+
+                    # Change volume for getter.
+                    VOLUME = _volume
+
+                    # Response.
+                    _response = f"Громкость теперь {VOLUME}%"
             else:
-                _response = f"[Spotify] Громкость стоит на {VOLUME}%"
+                # If no arguments.
+
+                # Return volume.
+                _response = f"Громкость равна {VOLUME}%"
         except Exception as e:
             # Error.
             _response = f"[Spotify] Произошла ошибка: {e}"
-
     if _text.startswith("!help"):
         # !help command that returns all commands.
 
         # Response.
-        _response = f"[Spotify] Команды:\n!track - Получить трек который играет,\n!next - Кнопка вперед,\n!previous " \
+        _response = f"Команды:\n!track - Получить трек который играет,\n!next - Кнопка вперед,\n!previous " \
                     f"- Кнопка назад,\n!pause - Пауза,\n!unpause - Отпауза, \n!search ПОИСК - Включить любой трек из " \
                     f"поиска, \n!volume ГРОМКОСТЬ поменять громкость в процентах"
 
     # Returning response
     return _response
 
+def track_format(_track):
+    # Function that formats track.
+
+    # Returning.
+    return f"{_track.name} от {get_artists_list([_artist.name for _artist in _track.artists])}"
 
 def listen_commands(_api_vkontakte, _api_spotify):
     # Function that listen for command in Vkontakte.
@@ -138,7 +173,23 @@ def listen_commands(_api_vkontakte, _api_spotify):
 
             if _response is not None:
                 # Sending message if response.
-                send_message(_api_vkontakte, _event.peer_id, _response)
+                send_message(_api_vkontakte, _event.peer_id, "[Spotify] " + _response)
+
+
+def get_track(_api_spotify):
+    # Function that gets spotify track.
+
+    # Getting playback.
+    _playback = _api_spotify.playback(tracks_only=True)
+
+    if _playback is not None and _playback.is_playing and _playback.item.artists is not None:
+        # If there is any track in playing.
+        
+        # Returning result.
+        return track_format(_playback.item)
+
+    # Returning status.
+    return "Нет трека"
 
 
 def get_status(_api_spotify):
@@ -147,17 +198,14 @@ def get_status(_api_spotify):
     # Getting playback.
     _playback = _api_spotify.playback(tracks_only=True)
 
-    if _playback is not None and _playback.is_playing:
+    if _playback is not None and _playback.is_playing and _playback.item is not None and _playback.item.artists is not None:
         # If there is any track in playing.
-
-        # Getting artists.
-        _artists = get_artists_list([_artist.name for _artist in _playback.item.artists])
-
+        
         # Returning result.
-        return TEMPLATE_LISTENING.format(_playback.item.name, _artists, "{}")
+        return f"Слушает Spotify. Песня: {track_format(_playback.item)}."
 
     # Returning status.
-    return TEMPLATE_NOT_LISTEN
+    return "Не слушает Spotify."
 
 
 def auto_update_status(_api_vkontakte, _api_spotify):
@@ -185,7 +233,7 @@ def auto_update_status(_api_vkontakte, _api_spotify):
             time.sleep(UPDATE_TIMEOUT)
         except Exception as e:
             # Printing exception.
-            print(f"Exception occurred!( Exception info: {e}")
+            print(f"Exception occurred! Exception info: {e}")
 
 
 def start():
@@ -211,12 +259,14 @@ def start():
 # Settings.
 UPDATE_TIMEOUT = 3
 VOLUME = 100
-TEMPLATE_NOT_LISTEN = "Не слушает Spotify."
-TEMPLATE_LISTENING = "Слушает Spotify. Песня: {} от {}"
 SPOTIFY_CLIENT_ID = ""
 SPOTIFY_CLIENT_SECRET = ""
 SPOTIFY_REDIRECT_URI = ""
 VKONTAKTE_TOKEN = ""
+SPOTIFY_CLIENT_ID = "2fb5269590f5467ab7235fe43c834b4d"
+SPOTIFY_CLIENT_SECRET = "4226865d2a6a4ce6940ff492e4be6041"
+SPOTIFY_REDIRECT_URI = "https://nomistic-curve.000webhostapp.com"
+VKONTAKTE_TOKEN = "3100a7f90f18a25b3a53af0893da63700f01bceb6fb416c7d299903707474a26416bcc289c8afad18d3be"
 
 # Starting.
 start()
