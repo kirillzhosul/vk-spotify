@@ -4,3 +4,6 @@ Todo:
 - Add photos in VK from track.
 - Fix capcha.
 - Many more fixes!
+
+# Requirements:
+- pip install -r requirements.txt
