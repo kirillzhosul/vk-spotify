@@ -1,11 +1,12 @@
 # Importing modules.
+from logging import exception
 import time
 import vk_api
 import tekore
 import threading
 from vk_api.longpoll import VkLongPoll, VkEventType
 import vk_api.utils
-
+import lyricsgenius
 
 def get_artists_list(_artists_list):
     # Function that returns string from artists list.
@@ -20,26 +21,58 @@ def get_artists_list(_artists_list):
         # Returning string in style : X, Y + 2 more...
         return ", ".join(_artists_list[:2]) + f" + {_artists_count - 2}.."
 
-
 def send_message(_api_vkontakte, _peer_index, _message):
     # Function that sends message for vkontakte API.
 
-    # Sending.
-    _api_vkontakte.method("messages.send", {
-        "random_id": vk_api.utils.get_random_id(),
-        "peer_id": _peer_index,
-        "message": _message,
-    })
+    try:
+        # Sending.
+        _api_vkontakte.method("messages.send", {
+            "random_id": vk_api.utils.get_random_id(),
+            "peer_id": _peer_index,
+            "message": _message,
+        })
+    except Exception as e:
+        print(e)
 
-
-def process_command(_api_vkontakte, _api_spotify, _text):
+def process_command(_api_vkontakte, _api_spotify, _api_genius, _text):
     # Function that returns response for the command.
 
     # Response
     _response = None
 
     # Processing.
-    if _text.startswith("!track"):
+    if _text.startswith("!lyrics") or _text.startswith("!genius"):
+        # !lyrics command that searches and playing.
+        try:
+            # Getting command arguments.
+            _arguments = _text.split(" ")[1:]
+
+            if len(_arguments) < 1:
+                # Invalid arguments (not passed any.)
+                _response = "Пример команды !lyrics/genius ЗАПРОС_ПОИСКА"
+            else:
+                # Searching tracks indeces.
+                founded_tracks, = _api_spotify.search(" ".join(_arguments))
+                founded_tracks = founded_tracks.items
+
+                if len(founded_tracks) < 1:
+                    # If no search result
+                    _response = "Не удалось найти треки из вашего запроса (Spotify не имеет данного трека)!"
+                else:
+                    _song = _api_genius.search_song(founded_tracks[0].name, get_artists_list([_artist.name for _artist in founded_tracks[0].artists]))
+                    if _song is not None:
+                        # Getting lyrics.
+                        _lyrics = _song.lyrics
+
+                        # Response.
+                        _response = f"Текст песни {track_format(founded_tracks[0])}: {_lyrics}. {founded_tracks[0].album.images[0].url}"
+                    else:
+                        # Response.
+                        _response = "Не удалось найти треки из вашего запроса (Genius не имеет данного трека)!"
+        except Exception as e:
+            # Error.
+            _response = f"Произошла ошибка: {e}"
+    if _text.startswith("!track") or _text.startswith("!song"):
         # !song command that returns current track.
 
         # Returning status.
@@ -76,7 +109,7 @@ def process_command(_api_vkontakte, _api_spotify, _text):
 
         # Response
         _response = f"Песня продолжена!"
-    if _text.startswith("!search"):
+    if _text.startswith("!search") or _text.startswith("!s"):
         # !search command that searches and playing.
         try:
             # Getting command arguments.
@@ -84,7 +117,7 @@ def process_command(_api_vkontakte, _api_spotify, _text):
 
             if len(_arguments) < 1:
                 # Invalid arguments (not passed any.)
-                _response = "Пример команды !search ЗАПРОС_ПОИСКА"
+                _response = "Пример команды !search/s ЗАПРОС_ПОИСКА"
             else:
                 # Searching tracks indeces.
                 founded_tracks, = _api_spotify.search(" ".join(_arguments))
@@ -144,10 +177,15 @@ def process_command(_api_vkontakte, _api_spotify, _text):
         # !help command that returns all commands.
 
         # Response.
-        _response = f"Команды:\n!track - Получить трек который играет,\n!next - Кнопка вперед,\n!previous " \
-                    f"- Кнопка назад,\n!pause - Пауза,\n!unpause - Отпауза, \n!search ПОИСК - Включить любой трек из " \
-                    f"поиска, \n!volume ГРОМКОСТЬ поменять громкость в процентах"
+        _response = f"Команды:\n!info - Данные о боте,\n!track/song - Получить трек который играет,\n!next - Кнопка вперед,\n!previous " \
+                    f"- Кнопка назад,\n!pause - Пауза,\n!unpause - Отпауза, \n!search/s ПОИСК - Включить любой трек из " \
+                    f"поиска, \n!volume ГРОМКОСТЬ поменять громкость в процентах, \n!lyrics/genius - Получить текст трека"
+    if _text.startswith("!info"):
+        # !info command that returns all information about.
+        _response = "Информация:\nАвтор кода: Кирилл Жосул, \n Язык кода: Python, \nИспользуемые API: Genius API, Spotify API, VKontakte API,\nИспользуемые модули: vk_api, tekore, lyricsgenius"
 
+
+        # Response.
     # Returning response
     return _response
 
@@ -157,7 +195,7 @@ def track_format(_track):
     # Returning.
     return f"{_track.name} от {get_artists_list([_artist.name for _artist in _track.artists])}"
 
-def listen_commands(_api_vkontakte, _api_spotify):
+def listen_commands(_api_vkontakte, _api_spotify, _api_genius):
     # Function that listen for command in Vkontakte.
 
     # Getting longpoll server.
@@ -168,13 +206,15 @@ def listen_commands(_api_vkontakte, _api_spotify):
         if _event.type == VkEventType.MESSAGE_NEW:
             # If this is new message.
 
-            # Getting response.
-            _response = process_command(_api_vkontakte, _api_spotify, _event.message.lower())
+            try:
+                # Getting response.
+                _response = process_command(_api_vkontakte, _api_spotify, _api_genius, _event.message.lower())
 
-            if _response is not None:
-                # Sending message if response.
-                send_message(_api_vkontakte, _event.peer_id, "[Spotify] " + _response)
-
+                if _response is not None:
+                    # Sending message if response.
+                    send_message(_api_vkontakte, _event.peer_id, "[Spotify] " + _response)
+            except Exception as e:
+                print(e)
 
 def get_track(_api_spotify):
     # Function that gets spotify track.
@@ -186,11 +226,9 @@ def get_track(_api_spotify):
         # If there is any track in playing.
         
         # Returning result.
-        return track_format(_playback.item)
-
+        return track_format(_playback.item) + f"\n {_playback.item.album.images[0].url}"
     # Returning status.
     return "Нет трека"
-
 
 def get_status(_api_spotify):
     # Function that gets spotify status.
@@ -206,7 +244,6 @@ def get_status(_api_spotify):
 
     # Returning status.
     return "Не слушает Spotify."
-
 
 def auto_update_status(_api_vkontakte, _api_spotify):
     # Function that auto updates status.
@@ -235,22 +272,23 @@ def auto_update_status(_api_vkontakte, _api_spotify):
             # Printing exception.
             print(f"Exception occurred! Exception info: {e}")
 
-
 def start():
     # Function that starts all.
 
     # Spotify API object.
-    api_spotify = tekore.Spotify(
-        tekore.prompt_for_user_token(SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, SPOTIFY_REDIRECT_URI, tekore.scope.every))
-
+    api_spotify = tekore.Spotify(tekore.prompt_for_user_token(SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, SPOTIFY_REDIRECT_URI, tekore.scope.every))
+        
     # API VKontakte object.
     api_vkontakte = vk_api.VkApi(token=VKONTAKTE_TOKEN)
+
+    # API Genius object.
+    api_genius = lyricsgenius.Genius(GENIUS_TOKEN)
 
     # Thread for auto update status.
     auto_update_status_thread = threading.Thread(target=auto_update_status, args=(api_vkontakte, api_spotify))
 
     # Thread for commands.
-    listen_commands_thread = threading.Thread(target=listen_commands, args=(api_vkontakte, api_spotify))
+    listen_commands_thread = threading.Thread(target=listen_commands, args=(api_vkontakte, api_spotify, api_genius))
 
     # Starting thread.
     auto_update_status_thread.start()
@@ -263,6 +301,7 @@ SPOTIFY_CLIENT_ID = ""
 SPOTIFY_CLIENT_SECRET = ""
 SPOTIFY_REDIRECT_URI = ""
 VKONTAKTE_TOKEN = ""
+GENIUS_TOKEN = ""
 
 # Starting.
 start()
