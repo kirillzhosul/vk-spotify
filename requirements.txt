@@ -1,2 +1,5 @@
 tekore
 vk-api
+loguru
+lyricsgenius
+ShazamAPI
