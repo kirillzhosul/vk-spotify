@@ -1,307 +1,572 @@
 # Importing modules.
-from logging import exception
-import time
+
+# VKontakte.
 import vk_api
-import tekore
-import threading
+from vk_api.exceptions import AuthError
 from vk_api.longpoll import VkLongPoll, VkEventType
 import vk_api.utils
+
+# Other.
+import time
+import threading
+import requests
+import os
+from loguru import logger
+
+# Spotify API.
+import tekore
+
+# Genius API.
 import lyricsgenius
 
-def get_artists_list(_artists_list):
-    # Function that returns string from artists list.
+# Shazam API.
+from ShazamAPI import Shazam
 
-    # Getting artists count.
-    _artists_count = len(_artists_list)
+def VKontakte_command_information():
+    # Information command that returns information.
 
-    if _artists_count <= 2:
-        # Returning default string.
-        return ", ".join(_artists_list)
-    else:
-        # Returning string in style : X, Y + 2 more...
-        return ", ".join(_artists_list[:2]) + f" + {_artists_count - 2}.."
+    # Returning.
+    return "Информация:\nSpotify, Genius, Shazam интеграция в VK,\nАвтор: Кирилл Жосул,\nИспользуемые API: Genius API, Spotify API, VKontakte API, Shazam API."
 
-def send_message(_api_vkontakte, _peer_index, _message):
-    # Function that sends message for vkontakte API.
+def VKontakte_command_help():
+    # Help command that returns help.
+
+    # Response.
+    _response = "Команды:\n"
+    _response += "!info|i|inormation|инфо - Информация,\n"
+    _response += "!help|h|помощь|! - Эта команда,\n"
+    _response += "!track|song|current|песня|трек - Выведет трек который играет в данный момент,\n"
+    _response += "!next|следующая - Кнопка вперед (Переключить трек),\n"
+    _response += "!previous|прошлая- Кнопка назад (Переключить трек),\n"
+    _response += "!pause|пауза - Приостановить трек который играет,\n"
+    _response += "!resume|продолжить - Продолжить трек который играет,\n"
+    _response +=  "!search|s|поиск!п \{ЗАПРОС_ПОИСКА\} - Покажет трек который удалось найти из вашего запроса,\n"
+    _response += "!volume|громкость \{ГРОМКОСТЬ(ПУСТО ДЛЯ ПОЛУЧЕНИЯ ЗНАЧЕНИЯ СЕЙЧАС)\} - Поменять громкость на переданную,\n"
+    _response += "!lyrics|genius|l|текст \{ЗАПРОС_ПОИСКА\}- Получить текст трека из поиска,\n"
+    _response += "!analyse|a|анализ \{ЗАПРОС_ПОИСКА\} - Анализ трека из поиска (Особенности)"
+
+    # Returning.
+    return _response    
+
+def VKontakte_command_track():
+    # Track command that returns current track.
+
+    # Returning.
+    return Spotify_get_current_track(True)
+
+def VKontakte_command_resume():
+    # Resume command that resumes song.
 
     try:
-        # Sending.
-        _api_vkontakte.method("messages.send", {
-            "random_id": vk_api.utils.get_random_id(),
-            "peer_id": _peer_index,
-            "message": _message,
-        })
-    except Exception as e:
-        print(e)
+        # Resuming.
+        API_Spotify.playback_resume()
 
-def process_command(_api_vkontakte, _api_spotify, _api_genius, _text):
-    # Function that returns response for the command.
+        # Returning
+        return "Песня продолжена!"
+    except Exception:
+        return "Произошла ошибки при попытки продолжить песню! (Песня уже идёт?)"
 
-    # Response
+def VKontakte_command_pause():
+    # Pause command that pauses song.
+
+    try:
+        # Pausing.
+        API_Spotify.playback_pause()
+
+        # Returning
+        return "Песня остановлена!"
+    except Exception:
+        return "Произошла ошибки при попытки остановить песню! (Песня уже остановлена?)"
+
+def VKontakte_command_volume(_message):
+    # Volume command that set new volume or returns it.
+    try:
+        # Trying to set or get volume.
+
+        # Getting command arguments.
+        _arguments = _message.split(" ")[1:]
+
+        # Global volume.
+        global VOLUME
+
+        if len(_arguments) > 0:
+            # If any arguments.
+
+            # Getting volume.
+            _volume = int(_arguments[0])
+
+            if _volume < 0 or _volume > 100:
+                # Overflow error.
+
+                # Returning error.
+                return "Громкость должна быть в пределах от 0 до 100%!"
+
+            # Setting volume
+            API_Spotify.playback_volume(_volume)
+
+            # Change volume for global variable.
+            VOLUME = _volume
+
+            # Returning response.
+            return f"Громкость теперь {VOLUME}%"
+        else:
+            # If no arguments.
+
+            # Return volume.
+            return f"Громкость равна {VOLUME}%"
+    except Exception:
+        # If there is an exception
+
+        # Returning error.
+        return f"Произошла ошибка при попытке получать/изменить громкость воспроизведения."
+
+def VKontakte_command_previous():
+    # Previous command that change track to previous.
+
+    # Playing previous.
+    API_Spotify.playback_previous()
+
+    # Returning status.
+    return f"Песня переключена на {Spotify_get_current_track(True)}!" 
+
+def VKontakte_command_next():
+    # Next command that change track to next.
+
+    # Playing next.
+    API_Spotify.playback_next()
+
+    # Returning status.
+    return f"Песня переключена на {Spotify_get_current_track(True)}!" 
+
+def VKontakte_command_search(_message):
+    # Search command that searces for song.
+
+    try:
+        # Getting command arguments.
+        _arguments = _message.split(" ")[1:]
+
+        if len(_arguments) < 1:
+            # If Invalid arguments (not passed any.)
+
+            # Returning example.
+            return "Пример команды !search/s ЗАПРОС_ПОИСКА"
+
+        # Searching tracks indeces.
+        founded_tracks, = API_Spotify.search(" ".join(_arguments))
+        founded_tracks = founded_tracks.items
+
+        if len(founded_tracks) < 1:
+            # If no search result
+
+            # Returning no result text.
+            return "Не удалось найти треки из вашего запроса!"
+
+        # Getting just one track.
+        founded_track = founded_tracks[0]
+
+        # Playing.
+        API_Spotify.playback_start_tracks([founded_track.id])
+
+        # Response.
+        return f"Песня переключена на {Spotify_format_track(founded_track)}. {founded_track.album.images[0].url}"
+    except Exception:
+        # If there is an exception.
+
+        # Returning error.
+        return "Произошла ошибки при попытки найти песню!"
+
+def VKontakte_command_analyse(_message):
+    # Analyse command that analyse song.
+
+    try:
+        # Getting command arguments.
+        _arguments = _message.split(" ")[1:]
+
+        if len(_arguments) < 1:
+            # If Invalid arguments (not passed any.)
+
+            # Returning example.
+            return "Пример команды !analyse/a ЗАПРОС_ПОИСКА"
+
+        # Searching tracks indeces.
+        founded_tracks, = API_Spotify.search(" ".join(_arguments))
+        founded_tracks = founded_tracks.items
+
+        if len(founded_tracks) < 1:
+            # If no search result
+
+            # Returning no result text.
+            return "Не удалось найти треки из вашего запроса!"
+
+
+        # Getting just one track.
+        founded_track = founded_tracks[0]
+
+        # Getting track data.
+        _track_features = API_Spotify.track_audio_features(founded_track.id)
+        _track_analysis = API_Spotify.track_audio_analysis(founded_track.id)
+
+        # Response.
+        return f"Анализ трека {Spotify_format_track(founded_track)}: Акустичность: {Spotify_format_feature(_track_features.acousticness)}, \
+                \nТанцевальность: {Spotify_format_feature(_track_features.danceability)},\nЭнергичность: {Spotify_format_feature(_track_features.energy)}, \
+                \nИнструментальность: {_track_features.instrumentalness},\nЖивучесть: {_track_features.liveness}, \
+                \nГромкость: {_track_features.loudness},\nРазговорность: {Spotify_format_feature(_track_features.speechiness)}, \
+                \nТемп: {_track_features.tempo},\nВалентность: {Spotify_format_feature(_track_features.valence)},\n"
+    except Exception:
+        # If there is an exception.
+
+        # Returning error.
+        return "Произошла ошибки при попытки анализировать песню!"
+  
+def VKontakte_command_lyrics(_message):
+    # Lyrics command that returns lyrics of the song.
+
+    try:
+        # Getting command arguments.
+        _arguments = _message.split(" ")[1:]
+
+        if len(_arguments) < 1:
+            # If Invalid arguments (not passed any.)
+
+            # Returning example.
+            return "Пример команды !lyrics/genius ЗАПРОС_ПОИСКА"
+
+        # Searching tracks indeces.
+        founded_tracks, = API_Spotify.search(" ".join(_arguments))
+        founded_tracks = founded_tracks.items
+
+        if len(founded_tracks) < 1:
+            # If no search result
+
+            # Returning no result text.
+            return "Не удалось найти треки из вашего запроса (Spotify не имеет данного трека)!"
+
+
+        # Getting just one track.
+        founded_track = founded_tracks[0]
+
+        # Searching song in genius.
+        _genius_song = API_Genius.search_song(founded_track.name, Spotify_format_artists([_artist.name for _artist in founded_track.artists]))
+
+        if _genius_song is not None:
+            # If there is any song.
+
+            # Getting lyrics.
+            _lyrics = _genius_song.lyrics
+
+            # Response.
+            return f"Текст песни {Spotify_format_track(founded_track)}: {_lyrics}. {founded_track.album.images[0].url}"
+
+        # Not found error.
+        return "Не удалось найти треки из вашего запроса (Genius не имеет данного трека)!"
+    except Exception:
+        # If there is an exception.
+
+        # Returning error.
+        return "Произошла ошибки при попытки получить текст песни!"
+
+def VKontakte_response_message(_message):
+    # Function that returns response for the message.
+
+    # Response for returning.
     _response = None
 
-    # Processing.
-    if _text.startswith("!lyrics") or _text.startswith("!genius"):
-        # !lyrics command that searches and playing.
-        try:
-            # Getting command arguments.
-            _arguments = _text.split(" ")[1:]
+    if _message.startswith("!"):
+        # If prefix in the command.
 
-            if len(_arguments) < 1:
-                # Invalid arguments (not passed any.)
-                _response = "Пример команды !lyrics/genius ЗАПРОС_ПОИСКА"
-            else:
-                # Searching tracks indeces.
-                founded_tracks, = _api_spotify.search(" ".join(_arguments))
-                founded_tracks = founded_tracks.items
+        if _message == "!":
+            # Help command.
+            _response = VKontakte_command_help()
 
-                if len(founded_tracks) < 1:
-                    # If no search result
-                    _response = "Не удалось найти треки из вашего запроса (Spotify не имеет данного трека)!"
-                else:
-                    _song = _api_genius.search_song(founded_tracks[0].name, get_artists_list([_artist.name for _artist in founded_tracks[0].artists]))
-                    if _song is not None:
-                        # Getting lyrics.
-                        _lyrics = _song.lyrics
+        # Processing.
+        if _response is None:
+            # If not help.
 
-                        # Response.
-                        _response = f"Текст песни {track_format(founded_tracks[0])}: {_lyrics}. {founded_tracks[0].album.images[0].url}"
-                    else:
-                        # Response.
-                        _response = "Не удалось найти треки из вашего запроса (Genius не имеет данного трека)!"
-        except Exception as e:
-            # Error.
-            _response = f"Произошла ошибка: {e}"
-    if _text.startswith("!track") or _text.startswith("!song"):
-        # !song command that returns current track.
+            for _command in VKONTAKTE_COMMANDS:
+                # For every commands.
 
-        # Returning status.
-        _response = get_track(_api_spotify)
-    if _text.startswith("!next"):
-        # !next command that plays next track in the playlist.
+                if _message.startswith(_command):
+                    # If message starts with.
 
-        # Playing next.
-        _api_spotify.playback_next()
+                    # Executing.
+                    _response = VKONTAKTE_COMMANDS[_command](_message)
 
-        # Returning status.
-        _response = f"Песня переключена на {get_track(_api_spotify)}!"
-    if _text.startswith("!previous"):
-        # !previous command that plays previous track in the playlist.
+                    # Breaking loop.
+                    break
 
-        # Playing previous.
-        _api_spotify.playback_previous()
-
-        # Returning status.
-        _response = f"Песня переключена на {get_track(_api_spotify)}!" 
-    if _text.startswith("!pause"):
-        # !pause command that pause playing.
-
-        # Pausing.
-        _api_spotify.playback_pause()
-
-        # Response
-        _response = f"Песня остановлена!"
-    if _text.startswith("!unpause"):
-        # !unpause command that unpause playing.
-
-        # Unpausing.
-        _api_spotify.playback_resume()
-
-        # Response
-        _response = f"Песня продолжена!"
-    if _text.startswith("!search") or _text.startswith("!s"):
-        # !search command that searches and playing.
-        try:
-            # Getting command arguments.
-            _arguments = _text.split(" ")[1:]
-
-            if len(_arguments) < 1:
-                # Invalid arguments (not passed any.)
-                _response = "Пример команды !search/s ЗАПРОС_ПОИСКА"
-            else:
-                # Searching tracks indeces.
-                founded_tracks, = _api_spotify.search(" ".join(_arguments))
-                founded_tracks = founded_tracks.items
-
-                if len(founded_tracks) < 1:
-                    # If no search result
-                    _response = "Не удалось найти треки из вашего запроса!"
-                else:
-                    # Getting ids list.
-                    #founded_tracks_id = [_track.id for _track in founded_tracks]
-
-                    # Playing.
-                    _api_spotify.playback_start_tracks([founded_tracks[0].id])
-
-                    # Response.
-                    _response = f"Песня переключена на {track_format(founded_tracks[0])}. {founded_tracks[0].album.images[0].url}"
-        except Exception as e:
-            # Error.
-            _response = f"Произошла ошибка: {e}"
-    if _text.startswith("!volume"):
-        # !volume command that sets the volume.
-        try:
-            # Getting command arguments.
-            _arguments = _text.split(" ")[1:]
-
-            # Global volume?
-            global VOLUME
-
-            if len(_arguments) > 0:
-                # If any arguments.
-
-                # Getting volume.
-                _volume = int(_arguments[0])
-
-                if _volume < 0 or _volume > 100:
-                    # Overflow error.
-                    _response = "Громкость должна быть от 0 до 100%!"
-                else:
-                    # Setting volume
-                    _api_spotify.playback_volume(_volume)
-
-                    # Change volume for getter.
-                    VOLUME = _volume
-
-                    # Response.
-                    _response = f"Громкость теперь {VOLUME}%"
-            else:
-                # If no arguments.
-
-                # Return volume.
-                _response = f"Громкость равна {VOLUME}%"
-        except Exception as e:
-            # Error.
-            _response = f"[Spotify] Произошла ошибка: {e}"
-    if _text.startswith("!help"):
-        # !help command that returns all commands.
-
-        # Response.
-        _response = f"Команды:\n!info - Данные о боте,\n!track/song - Получить трек который играет,\n!next - Кнопка вперед,\n!previous " \
-                    f"- Кнопка назад,\n!pause - Пауза,\n!unpause - Отпауза, \n!search/s ПОИСК - Включить любой трек из " \
-                    f"поиска, \n!volume ГРОМКОСТЬ поменять громкость в процентах, \n!lyrics/genius - Получить текст трека"
-    if _text.startswith("!info"):
-        # !info command that returns all information about.
-        _response = "Информация:\nАвтор кода: Кирилл Жосул, \n Язык кода: Python, \nИспользуемые API: Genius API, Spotify API, VKontakte API,\nИспользуемые модули: vk_api, tekore, lyricsgenius"
-
-
-        # Response.
     # Returning response
     return _response
 
-def track_format(_track):
-    # Function that formats track.
-    
-    # Returning.
-    return f"{_track.name} от {get_artists_list([_artist.name for _artist in _track.artists])}"
+def VKontakte_send_message(_peer, _text):
+    # Function that sends message with the vkontakte API.
 
-def listen_commands(_api_vkontakte, _api_spotify, _api_genius):
+    try:
+        # Sending.
+        API_VKontakte.method("messages.send", {
+            "random_id": vk_api.utils.get_random_id(),
+            "peer_id": _peer,
+            "message": _text,
+        })
+    except Exception as Error:
+        # Error information.
+        logger.error(f"Error when sending message with the VKontakte API! Eror information: {Error}")
+
+def Spotify_format_artists(_artists_list):
+    # Function that returns string with formatted artists list.
+
+    # Getting artists count.
+    return ", ".join(_artists_list)
+
+def Spotify_format_feature(_feature_value):
+    # Function that formats Spotify feature value.
+
+    if (type(_feature_value) != int and type(_feature_value) != float) or _feature_value < 0 or _feature_value > 1:
+        # If not number or not in allowed range
+        _error = f"Error when formatting feature with value {_feature_value}"
+        logger.warning(_error)
+        raise ValueError(_error)
+
+    # Returning.
+    if _feature_value < 0.4:
+        return STRINGS["spotify-feature-value-small"]
+    elif _feature_value > 0.4:
+        return STRINGS["spotify-feature-value-normal"]
+    else:
+        return STRINGS["spotify-feature-value-high"]
+
+def Spotify_format_track(_track):
+    # Function that formats track to the valid look.
+    
+    # Gettings artists list.
+    _artists = Spotify_format_artists([_artist.name for _artist in _track.artists])
+
+    # Returning.
+    return STRINGS["spotify-format-track"].format(_track.name, _artists)
+
+def Shazam_recognize_song_from_link(_link):
+    # Function that returns recognized song from given link to an mp3 file on web.
+
+    # Debug message.
+    logger.debug("Started Shazam recognition!")
+
+    # Getting filename.
+    _filename = os.getcwd() + "\\voicemessage.mp3"
+
+    # Downloading.
+    _downloadfile = requests.get(_link)
+    open(_filename, 'wb').write(_downloadfile.content)
+
+    # Debug message.
+    logger.debug("Downloaded voice message!")
+
+    # Getting shazam.
+    _API_SHAZAM = Shazam(open(_filename, "rb").read())
+    _API_SHAZAM_GENERATOR = _API_SHAZAM.recognizeSong()
+
+    # Default response
+    _response = None
+
+    for _song in _API_SHAZAM_GENERATOR:
+        # For every song in the generator.
+
+        # Getting song (removing offset)
+        _song = _song[1]
+
+        if "track" in _song:
+            # If there is any track.
+
+            # Getting track.
+            _song = _song["track"]
+
+            if "title" and "subtitle" in _song:
+                # If there title and subtitle.
+
+                # Getting response,
+                _response = STRINGS["shazam-message-founded"].format(_song['title'], _song['subtitle'])
+
+                if "images" in _song and "coverart" in _song["images"]:
+                    # Getting image if exists.
+                    _response += f"\n{_song['images']['coverart']}"
+
+                # Breaking.
+                break
+
+    # Debug message.
+    logger.debug(f"End recognizion of the song!")
+
+    # Response
+    return _response
+
+def VKontakte_process_messages():
     # Function that listen for command in Vkontakte.
 
     # Getting longpoll server.
-    _api_longpoll_vkontakte = VkLongPoll(_api_vkontakte)
+    _API_LONGPOOL_VKONTAKTE = VkLongPoll(API_VKontakte)
 
-    for _event in _api_longpoll_vkontakte.listen():
-        # If new event.
-        if _event.type == VkEventType.MESSAGE_NEW:
-            # If this is new message.
-
+    for _message_event in _API_LONGPOOL_VKONTAKTE.listen():
+        if _message_event.type == VkEventType.MESSAGE_NEW:
+            # If new message event.
             try:
-                # Getting response.
-                _response = process_command(_api_vkontakte, _api_spotify, _api_genius, _event.message.lower())
+                if "attachments" in _message_event.attachments and len(_message_event.attachments["attachments"]) > 0:
+                    # If any attachment.
 
-                if _response is not None:
-                    # Sending message if response.
-                    send_message(_api_vkontakte, _event.peer_id, "[Spotify] " + _response)
-            except Exception as e:
-                print(e)
+                    # Attachment.
+                    _attachment = eval(_message_event.attachments["attachments"])[0]
 
-def get_track(_api_spotify):
-    # Function that gets spotify track.
+                    if _attachment["type"] == "audio_message": 
+                        # If audio message.
 
-    # Getting playback.
-    _playback = _api_spotify.playback(tracks_only=True)
+                        # Recognizing.
+                        _response = Shazam_recognize_song_from_mp3link(_attachment["audio_message"]["link_mp3"])
 
-    if _playback is not None and _playback.is_playing and _playback.item.artists is not None:
-        # If there is any track in playing.
-        
-        # Returning result.
-        return track_format(_playback.item) + f"\n {_playback.item.album.images[0].url}"
-    # Returning status.
-    return "Нет трека"
+                        # If no response.
+                        if _response is None:
+                            _response = STRINGS["shazam-message-not-found"]
 
-def get_status(_api_spotify):
-    # Function that gets spotify status.
+                         # Responsing.
+                        VKontakte_send_message(_message_event.peer_id, STRINGS["vkontakte-message-format-shazam"].format(_response))
+                else:
+                    # Getting response for the command.
+                    _message_response = VKontakte_response_message(_message_event.message.lower())
 
-    # Getting playback.
-    _playback = _api_spotify.playback(tracks_only=True)
+                    if _message_response is not None and _message_response != "":
+                        # Sending message if response is exists.
+                        VKontakte_send_message(_message_event.peer_id, STRINGS["vkontakte-message-format"].format(_message_response))
+            except Exception as Error:
+                # Printing exception.
+                logger.exception(f"Error when trying to process VKontakte message! Error information: {Error}")
 
-    if _playback is not None and _playback.is_playing and _playback.item is not None and _playback.item.artists is not None:
-        # If there is any track in playing.
-        
-        # Returning result.
-        return f"Слушает Spotify. Песня: {track_format(_playback.item)}."
+def Spotify_get_current_track(_album_cover=False):
+    # Function that returns Spotify current track.
 
-    # Returning status.
-    return "Не слушает Spotify."
+    try:
+        # Getting playback.
+        _playback = API_Spotify.playback(tracks_only=True)
 
-def auto_update_status(_api_vkontakte, _api_spotify):
-    # Function that auto updates status.
+        # Status for the return.
+        _status = None
 
-    # Status that was before update.
-    status_previous = None
+        if _playback is not None and _playback.is_playing:
+            # If there is any track in playing and its playing.
+            if _playback.item is not None and _playback.item.artists is not None:
+                # If not any error ?.
+            
+                # Result.
+                _status = Spotify_format_track(_playback.item)
+
+                # Album cover if need.
+                if _album_cover:
+                    # If return cover.
+                    if _playback.item.album is not None and len(_playback.item.album.images) > 0:
+                        # If not error.
+                        _status += f"\n {_playback.item.album.images[0].url}"
+
+        # Returning status.
+        return None
+    except Exception as Error:
+        # Printing exception.
+        logger.exception(f"Error when trying to get current track ! Error information: {Error}")
+
+def VKontakte_status_updater():
+    # Function that updates status for the VKontakte.
+
+    # Status that was before (For not calling method and not get Captcha).
+    _old_status = None
 
     while True:
         # Infinity loop.
+
         try:
-            # Getting new status.
-            _new_status = get_status(_api_spotify)
+            # Getting current track..
+            _new_status = STRINGS["vkontakte-status-format"].format(Spotify_get_current_track(API_Spotify)) 
 
-            if status_previous != _new_status:
-                # If status changed.
-
-                # Updating status.
-                _api_vkontakte.method("status.set", {"text": _new_status})
+            if _new_status != _old_status:
+                # If status was changing..
 
                 # Updating status.
-                status_previous = _new_status
+                API_VKontakte.method("status.set", {"text": _new_status})
+
+                # Setting old status to the new.
+                _old_status = _new_status
 
             # Sleeping for the timeout.
-            time.sleep(UPDATE_TIMEOUT)
-        except Exception as e:
+            time.sleep(VKONTAKTE_STATUS_UPDATE_SPEED)
+        except Exception as Error:
             # Printing exception.
-            print(f"Exception occurred! Exception info: {e}")
+            logger.exception(f"Error when trying to update VKontakte status! Error information: {Error}")
 
-def start():
+def Main():
     # Function that starts all.
 
-    # Spotify API object.
-    api_spotify = tekore.Spotify(tekore.prompt_for_user_token(SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, SPOTIFY_REDIRECT_URI, tekore.scope.every))
-        
-    # API VKontakte object.
-    api_vkontakte = vk_api.VkApi(token=VKONTAKTE_TOKEN)
+    # Authorizing APIs.
+    try:
+        global API_Spotify
+        global API_VKontakte
+        global API_Genius
+        API_Spotify = tekore.Spotify(tekore.prompt_for_user_token(__AUTH_SPOTIFY_CLIENT_ID, __AUTH_SPOTIFY_CLIENT_SECRET, __AUTH_SPOTIFY_REDIRECT_URI, tekore.scope.every))
+        API_VKontakte = vk_api.VkApi(token=__AUTH_VKONTAKTE_TOKEN)
+        API_Genius = lyricsgenius.Genius(__AUTH_GENIUS_TOKEN)
+    except Exception as Error:
+        # Error message.
+        logger.error(f"Error when authorizing the APIs! Error information: {Error}")
+        raise AuthError
 
-    # API Genius object.
-    api_genius = lyricsgenius.Genius(GENIUS_TOKEN)
+    # Launching threads.
+    threading.Thread(target=VKontakte_status_updater, args=()).start()
+    threading.Thread(target=VKontakte_process_messages, args=()).start()
 
-    # Thread for auto update status.
-    auto_update_status_thread = threading.Thread(target=auto_update_status, args=(api_vkontakte, api_spotify))
+    # Success message.
+    logger.success("Launched main() function!")
 
-    # Thread for commands.
-    listen_commands_thread = threading.Thread(target=listen_commands, args=(api_vkontakte, api_spotify, api_genius))
+# Every VKONTAKTE_STATUS_UPDATE_SPEED will be called update of the status (VK)
+VKONTAKTE_STATUS_UPDATE_SPEED = 3
 
-    # Starting thread.
-    auto_update_status_thread.start()
-    listen_commands_thread.start()
-
-# Settings.
-UPDATE_TIMEOUT = 3
+# Default volume for the spotify (Will be set when launching ).
 VOLUME = 100
-SPOTIFY_CLIENT_ID = ""
-SPOTIFY_CLIENT_SECRET = ""
-SPOTIFY_REDIRECT_URI = ""
-VKONTAKTE_TOKEN = ""
-GENIUS_TOKEN = ""
+
+# Authorizations values.
+__AUTH_SPOTIFY_CLIENT_ID = ""
+__AUTH_SPOTIFY_CLIENT_SECRET = ""
+__AUTH_SPOTIFY_REDIRECT_URI = ""
+__AUTH_VKONTAKTE_TOKEN = ""
+__AUTH_GENIUS_TOKEN = None
+
+# APIs objects.
+API_Spotify = None
+API_VKontakte = None
+API_Genius = None
+# API_Shazam = None # Shazam does not require API object.
+
+VKONTAKTE_COMMANDS = {
+    "!help": VKontakte_command_help, "!h": VKontakte_command_help, "!помошь": VKontakte_command_help,
+    "!info": VKontakte_command_information, "!i": VKontakte_command_information, "!information": VKontakte_command_information, "!инфо": VKontakte_command_information, "!информация": VKontakte_command_information,
+    "!lyrics": VKontakte_command_lyrics, "!l": VKontakte_command_lyrics, "!текст": VKontakte_command_lyrics, "!genius": VKontakte_command_lyrics,
+    "!search": VKontakte_command_search, "!s": VKontakte_command_search, "!поиск": VKontakte_command_search, "!п": VKontakte_command_search,
+    "!next": VKontakte_command_next, "!следующая": VKontakte_command_next,
+    "!previous": VKontakte_command_previous, "!прошлая": VKontakte_command_previous,
+    "!pause": VKontakte_command_pause, "!пауза": VKontakte_command_pause,
+    "!resume": VKontakte_command_resume, "!продолжить": VKontakte_command_resume,
+    "!analyse": VKontakte_command_analyse, "!анализ": VKontakte_command_analyse,
+    "!volume": VKontakte_command_volume, "!громкость": VKontakte_command_volume,
+    "!track": VKontakte_command_track, "!song": VKontakte_command_track, "!current": VKontakte_command_track, "!песня": VKontakte_command_track, "!трек": VKontakte_command_track
+}
+
+# String for the program.
+STRINGS = {
+    "vkontakte-status-format": "Слушает Spotify. Трек: {}.",
+    "vkontakte-message-format": "[Spotify Integration]\n{}",
+    "vkontakte-message-format-shazam": "[Shazam Integration]\n{}",
+    "spotify-format-track": "{} от {}",
+    "spotify-feature-value-small": "Малая",
+    "spotify-feature-value-normal": "Средняя",
+    "spotify-feature-value-high": "Высокая",
+    "shazam-message-not-found": "По вашему запросу не удалось ничего найти.",
+    "shazam-message-founded": "Это {} от {}?"
+}
 
 # Starting.
-start()
+if __name__ == "__main__":
+    # Entry point.
+
+    # Calling entry point functions.
+    Main()
