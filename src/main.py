@@ -1,26 +1,71 @@
+# Python VK Spotify integration.
+# Author: Kirill Zhosul (@kirillzhosul)
+
 # Importing modules.
 
-# VKontakte.
-import vk_api
-from vk_api.exceptions import AuthError
-from vk_api.longpoll import VkLongPoll, VkEventType
-import vk_api.utils
-
-# Other.
+# Preinstalled libraries.
 import time
 import threading
 import requests
 import os
-from loguru import logger
+
+# VK API.
+import vk_api
+import vk_api.utils
+from vk_api.exceptions import AuthError
+from vk_api.longpoll import VkLongPoll, VkEventType
 
 # Spotify API.
 import tekore
 
-# Genius API.
-import lyricsgenius
+try:
+    # Trying to importing loguru.
 
-# Shazam API.
-from ShazamAPI import Shazam
+    # Importing.
+    from loguru import logger  # noqa
+except ImportError:
+    # If import error.
+
+    # Disabling loguru.
+    __loguru_enabled = False
+else:
+    # If no errors.
+
+    # Enabling loguru.
+    __loguru_enabled = True
+
+try:
+    # Trying to importing Genius API.
+
+    # Importing.
+    import lyricsgenius  # noqa
+except ImportError:
+    # If import error.
+
+    # Disabling Genius.
+    __genius_enabled = False
+else:
+    # If no errors.
+
+    # Enabling Genius.
+    __genius_enabled = True
+
+try:
+    # Trying to importing Shazam API.
+
+    # Importing.
+    from ShazamAPI import Shazam  # noqa
+except ImportError:
+    # If import error.
+
+    # Disabling Shazam.
+    __shazam_enabled = False
+else:
+    # If no errors.
+
+    # Enabling Shazam.
+    __shazam_enabled = True
+
 
 def VKontakte_command_information():
     # Information command that returns information.
@@ -221,6 +266,8 @@ def VKontakte_command_analyse(_message):
 def VKontakte_command_lyrics(_message):
     # Lyrics command that returns lyrics of the song.
 
+    if not __genius_enabled:
+        return "Данная команда отключена!"
     try:
         # Getting command arguments.
         _arguments = _message.split(" ")[1:]
@@ -265,7 +312,7 @@ def VKontakte_command_lyrics(_message):
         # Returning error.
         return "Произошла ошибки при попытки получить текст песни!"
 
-def VKontakte_response_message(_message):
+def vk_handle_command(_message):
     # Function that returns response for the message.
 
     # Response for returning.
@@ -309,7 +356,10 @@ def VKontakte_send_message(_peer, _text):
         })
     except Exception as Error:
         # Error information.
-        logger.error(f"Error when sending message with the VKontakte API! Eror information: {Error}")
+        if __loguru_enabled:
+            logger.error(f"Error when sending message with the VKontakte API! Eror information: {Error}")
+        else:
+            print(f"Error when sending message with the VKontakte API! Eror information: {Error}")
 
 def Spotify_format_artists(_artists_list):
     # Function that returns string with formatted artists list.
@@ -323,7 +373,10 @@ def Spotify_format_feature(_feature_value):
     if (type(_feature_value) != int and type(_feature_value) != float) or _feature_value < 0 or _feature_value > 1:
         # If not number or not in allowed range
         _error = f"Error when formatting feature with value {_feature_value}"
-        logger.warning(_error)
+        if __loguru_enabled:
+            logger.warning(_error)
+        else:
+            print(_error)
         raise ValueError(_error)
 
     # Returning.
@@ -343,23 +396,65 @@ def Spotify_format_track(_track):
     # Returning.
     return STRINGS["spotify-format-track"].format(_track.name, _artists)
 
-def Shazam_recognize_song_from_link(_link):
+def Spotify_get_current_track(_album_cover=False):
+    # Function that returns Spotify current track.
+
+    try:
+        # Getting playback.
+        _playback = API_Spotify.playback(tracks_only=True)
+
+        # Status for the return.
+        _status = None
+
+        if _playback is not None and _playback.is_playing:
+            # If there is any track in playing and its playing.
+            if _playback.item is not None and _playback.item.artists is not None:
+                # If not any error ?.
+            
+                # Result.
+                _status = Spotify_format_track(_playback.item)
+
+                # Album cover if need.
+                if _album_cover:
+                    # If return cover.
+                    if _playback.item.album is not None and len(_playback.item.album.images) > 0:
+                        # If not error.
+                        _status += f"\n {_playback.item.album.images[0].url}"
+
+        # Returning status.
+        return None
+    except Exception as Error:
+        # Printing exception.
+        if __loguru_enabled:
+            logger.exception(f"Error when trying to get current track ! Error information: {Error}")
+        else:
+            print(f"Error when trying to get current track ! Error information: {Error}")
+
+def shazam_recognize_from_link(_link):
     # Function that returns recognized song from given link to an mp3 file on web.
 
+    if not __shazam_enabled:
+        # If shazam is not enabled.
+
+        # Raising error.
+        raise ImportError
+
     # Debug message.
-    logger.debug("Started Shazam recognition!")
+    if __loguru_enabled:
+        logger.debug("Started Shazam recognition!")
 
     # Getting filename.
     _filename = os.getcwd() + "\\voicemessage.mp3"
 
-    # Downloading.
+    # Downloading file.
     _downloadfile = requests.get(_link)
     open(_filename, 'wb').write(_downloadfile.content)
 
     # Debug message.
-    logger.debug("Downloaded voice message!")
+    if __loguru_enabled:
+        logger.debug("Downloaded voice message!")
 
-    # Getting shazam.
+    # Getting shazam API.
     _API_SHAZAM = Shazam(open(_filename, "rb").read())
     _API_SHAZAM_GENERATOR = _API_SHAZAM.recognizeSong()
 
@@ -392,82 +487,44 @@ def Shazam_recognize_song_from_link(_link):
                 break
 
     # Debug message.
-    logger.debug(f"End recognizion of the song!")
+    if __loguru_enabled:
+        logger.debug(f"End recognition of the song!")
 
     # Response
     return _response
 
-def VKontakte_process_messages():
-    # Function that listen for command in Vkontakte.
+def shazam_process_message_request(_message_event):
+    # Function that process shazam.
 
-    # Getting longpoll server.
-    _API_LONGPOOL_VKONTAKTE = VkLongPoll(API_VKontakte)
+    if not __shazam_enabled:
+        # If shazam is not enabled.
 
-    for _message_event in _API_LONGPOOL_VKONTAKTE.listen():
-        if _message_event.type == VkEventType.MESSAGE_NEW:
-            # If new message event.
-            try:
-                if "attachments" in _message_event.attachments and len(_message_event.attachments["attachments"]) > 0:
-                    # If any attachment.
-
-                    # Attachment.
-                    _attachment = eval(_message_event.attachments["attachments"])[0]
-
-                    if _attachment["type"] == "audio_message": 
-                        # If audio message.
-
-                        # Recognizing.
-                        _response = Shazam_recognize_song_from_mp3link(_attachment["audio_message"]["link_mp3"])
-
-                        # If no response.
-                        if _response is None:
-                            _response = STRINGS["shazam-message-not-found"]
-
-                         # Responsing.
-                        VKontakte_send_message(_message_event.peer_id, STRINGS["vkontakte-message-format-shazam"].format(_response))
-                else:
-                    # Getting response for the command.
-                    _message_response = VKontakte_response_message(_message_event.message.lower())
-
-                    if _message_response is not None and _message_response != "":
-                        # Sending message if response is exists.
-                        VKontakte_send_message(_message_event.peer_id, STRINGS["vkontakte-message-format"].format(_message_response))
-            except Exception as Error:
-                # Printing exception.
-                logger.exception(f"Error when trying to process VKontakte message! Error information: {Error}")
-
-def Spotify_get_current_track(_album_cover=False):
-    # Function that returns Spotify current track.
-
-    try:
-        # Getting playback.
-        _playback = API_Spotify.playback(tracks_only=True)
-
-        # Status for the return.
-        _status = None
-
-        if _playback is not None and _playback.is_playing:
-            # If there is any track in playing and its playing.
-            if _playback.item is not None and _playback.item.artists is not None:
-                # If not any error ?.
-            
-                # Result.
-                _status = Spotify_format_track(_playback.item)
-
-                # Album cover if need.
-                if _album_cover:
-                    # If return cover.
-                    if _playback.item.album is not None and len(_playback.item.album.images) > 0:
-                        # If not error.
-                        _status += f"\n {_playback.item.album.images[0].url}"
-
-        # Returning status.
+        # Returning none.
         return None
-    except Exception as Error:
-        # Printing exception.
-        logger.exception(f"Error when trying to get current track ! Error information: {Error}")
 
-def VKontakte_status_updater():
+    if "attachments" in _message_event.attachments and len(_message_event.attachments["attachments"]) > 0:
+        # If any attachment.
+
+        # Attachment.
+        _attachment = eval(_message_event.attachments["attachments"])[0]
+
+        if _attachment["type"] == "audio_message":
+            # If audio message.
+
+            # Recognizing.
+            _response = shazam_recognize_from_link(_attachment["audio_message"]["link_mp3"])
+
+            # If no response.
+            if _response is None:
+                return STRINGS["shazam-message-not-found"]
+
+            # Responding.
+            return STRINGS["vkontakte-message-format-shazam"].format(_response)
+
+    # Returning no answer.
+    return None
+
+def vk_status_updater():
     # Function that updates status for the VKontakte.
 
     # Status that was before (For not calling method and not get Captcha).
@@ -481,7 +538,7 @@ def VKontakte_status_updater():
             _new_status = STRINGS["vkontakte-status-format"].format(Spotify_get_current_track(API_Spotify)) 
 
             if _new_status != _old_status:
-                # If status was changing..
+                # If status was changed.
 
                 # Updating status.
                 API_VKontakte.method("status.set", {"text": _new_status})
@@ -492,51 +549,129 @@ def VKontakte_status_updater():
             # Sleeping for the timeout.
             time.sleep(VKONTAKTE_STATUS_UPDATE_SPEED)
         except Exception as Error:
-            # Printing exception.
-            logger.exception(f"Error when trying to update VKontakte status! Error information: {Error}")
+            # If error.
 
-def Main():
+            # Printing exception.
+            if __loguru_enabled:
+                logger.exception(f"Error when trying to update VKontakte status! Error information: {Error}")
+            else:
+                print(f"Error when trying to update VKontakte status! Error information: {Error}")
+
+def vk_process_messages():
+    # Function that listen for command in Vkontakte.
+
+    # Getting longpoll server.
+    _API_LONGPOOL_VKONTAKTE = VkLongPoll(API_VKontakte)
+
+    for _message_event in _API_LONGPOOL_VKONTAKTE.listen():
+        # For every event.
+
+        if _message_event.type == VkEventType.MESSAGE_NEW:
+            # If new message event.
+
+            try:
+                # Trying to answer.
+
+                # Getting shazam result.
+                _shazam_result = shazam_process_message_request(_message_event)
+
+                if _shazam_result is None:
+                    # If shazam not recognized or not voice message.
+
+                    # Getting command text.
+                    _command = _message_event.message.lower()
+
+                    # Getting response for the command.
+                    _message_response = vk_handle_command(_command)
+
+                    if _message_response is not None and _message_response != "":
+                        # If any answer.
+
+                        # Sending message if response is exists.
+                        VKontakte_send_message(_message_event.peer_id, STRINGS["vkontakte-message-format"].format(_message_response))
+                else:
+                    # Responding.
+                    VKontakte_send_message(_message_event.peer_id, _shazam_result)
+            except Exception as Error:
+                # Printing exception.
+                logger.exception(f"Error when trying to process VKontakte message! Error information: {Error}")
+
+def main():
     # Function that starts all.
 
     # Authorizing APIs.
     try:
-        global API_Spotify
-        global API_VKontakte
-        global API_Genius
+        # Trying to auth.
+
+        # Global APIs.
+        global API_Spotify, API_VKontakte
+
+        # Spotify auth.
         API_Spotify = tekore.Spotify(tekore.prompt_for_user_token(__AUTH_SPOTIFY_CLIENT_ID, __AUTH_SPOTIFY_CLIENT_SECRET, __AUTH_SPOTIFY_REDIRECT_URI, tekore.scope.every))
+
+        # Vkontakte auth.
         API_VKontakte = vk_api.VkApi(token=__AUTH_VKONTAKTE_TOKEN)
-        API_Genius = lyricsgenius.Genius(__AUTH_GENIUS_TOKEN)
+
+        if __genius_enabled:
+            # If genius is enabled.
+
+            # Global API.
+            global API_Genius
+
+            # Genius auth.
+            API_Genius = lyricsgenius.Genius(__AUTH_GENIUS_TOKEN)
     except Exception as Error:
+        # If there exception.
+
         # Error message.
-        logger.error(f"Error when authorizing the APIs! Error information: {Error}")
+        if __loguru_enabled:
+            logger.error(f"Error when authorizing the APIs! Error information: {Error}")
+        else:
+            print(f"Error when authorizing the APIs! Error information: {Error}")
+
+        # Raising error.
         raise AuthError
 
     # Launching threads.
-    threading.Thread(target=VKontakte_status_updater, args=()).start()
-    threading.Thread(target=VKontakte_process_messages, args=()).start()
+    threading.Thread(target=vk_status_updater, args=()).start()
+    threading.Thread(target=vk_process_messages, args=()).start()
 
     # Success message.
-    logger.success("Launched main() function!")
+    if __loguru_enabled:
+        logger.success("Launched main() function!")
+    else:
+        print("Launched main() function!")
 
-# Every VKONTAKTE_STATUS_UPDATE_SPEED will be called update of the status (VK)
+# Uncomment this blocks to disable support of some functions.
+#__genius_enabled = False
+#__shazam_enabled = False
+#__loguru_enabled = False
+
+# Every VKONTAKTE_STATUS_UPDATE_SPEED will be called update of the status (VK).
 VKONTAKTE_STATUS_UPDATE_SPEED = 3
 
-# Default volume for the spotify (Will be set when launching ).
+# Default volume for the spotify (Will be set when launching as spotify don't has method to get current volume).
 VOLUME = 100
 
 # Authorizations values.
+
+# Spotify auth.
 __AUTH_SPOTIFY_CLIENT_ID = ""
 __AUTH_SPOTIFY_CLIENT_SECRET = ""
 __AUTH_SPOTIFY_REDIRECT_URI = ""
+
+# Vkontakte auth (user token).
 __AUTH_VKONTAKTE_TOKEN = ""
+
+# Genius token (Left blank if genius is disabled.
 __AUTH_GENIUS_TOKEN = None
 
 # APIs objects.
 API_Spotify = None
 API_VKontakte = None
 API_Genius = None
-# API_Shazam = None # Shazam does not require API object.
 
+# Commands for the VK.
 VKONTAKTE_COMMANDS = {
     "!help": VKontakte_command_help, "!h": VKontakte_command_help, "!помошь": VKontakte_command_help,
     "!info": VKontakte_command_information, "!i": VKontakte_command_information, "!information": VKontakte_command_information, "!инфо": VKontakte_command_information, "!информация": VKontakte_command_information,
@@ -551,7 +686,7 @@ VKONTAKTE_COMMANDS = {
     "!track": VKontakte_command_track, "!song": VKontakte_command_track, "!current": VKontakte_command_track, "!песня": VKontakte_command_track, "!трек": VKontakte_command_track
 }
 
-# String for the program.
+# Strings used for answering / other.
 STRINGS = {
     "vkontakte-status-format": "Слушает Spotify. Трек: {}.",
     "vkontakte-message-format": "[Spotify Integration]\n{}",
@@ -569,4 +704,4 @@ if __name__ == "__main__":
     # Entry point.
 
     # Calling entry point functions.
-    Main()
+    main()
