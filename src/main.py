@@ -656,12 +656,12 @@ VOLUME = 100
 # Authorizations values.
 
 # Spotify auth.
-__AUTH_SPOTIFY_CLIENT_ID = ""
-__AUTH_SPOTIFY_CLIENT_SECRET = ""
-__AUTH_SPOTIFY_REDIRECT_URI = ""
+__AUTH_SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID") or "YOUR_ID_HERE"
+__AUTH_SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET") or "YOUR_SECRET_HERE"
+__AUTH_SPOTIFY_REDIRECT_URI = os.getenv("SPOTIFY_REDIRECT_URI") or "YOUR_URI_HERE"
 
 # Vkontakte auth (user token).
-__AUTH_VKONTAKTE_TOKEN = ""
+__AUTH_VKONTAKTE_TOKEN = os.getenv("VK_USER_TOKEN") or "YOUR_TOKEN_HERE"
 
 # Genius token (Left blank if genius is disabled.
 __AUTH_GENIUS_TOKEN = None
