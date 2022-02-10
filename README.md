@@ -1,15 +1,20 @@
-# VK Spotify Integration
-## Python script that allows you to control your Spotify from your VK, set status for VK and more.
-# Features:
+---
+# Warning: Project is abandoned for now. Use at your own risk!
+---
+
+## VK Spotify Integration
+
+### Python script that allows you to control your Spotify from your VK, set status for VK and more.
+## Features:
 - Shazam support for voice messages.
 - Genius support with command "lyrics" (returns lyrics of the song)
 - Spotify integration (Song searching, changing song, getting song values)
-# Requirements:
-### Minimal install (No loguru, no shazam / genius)
+## Requirements:
+#### Minimal install (No loguru, no shazam / genius)
 - pip install -r requirements-min.txt 
-### Maximal install (All need modules)
+#### Maximal install (All need modules)
 - pip install -r requirements-max.txt
 
-# Preview in VK:
+## Preview in VK:
 
 ![Preview](preview.png)
